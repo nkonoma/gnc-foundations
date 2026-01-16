@@ -42,7 +42,7 @@ M = np.eye(3)
 # Define our intial estimates for mean and covariance and the truth at the starting time
 # Truth and estimates at t=0
 m0 = np.array([0, 0, 7]) # initial estimate [m, m/s, m/s^2]
-P0 = np.diag([14^2, 5^2, 1^2]) # initial covariance
+P0 = np.diag([14**2, 5**2, 1**2]) # initial covariance
 
 # Initialize kalman filter
 # generating an initial truth
@@ -51,18 +51,22 @@ xk = xt0 # truth at time 0
 mk = m0
 Pk = P0
 
+# Change storage arrays to interleave a priori and a posteriori
 nSteps = len(timeVector)
 zkp = np.zeros(nSteps)
-xtp = np.zeros((3, nSteps))  # Store truth once per step
-mpt_prior = np.zeros((3, nSteps))  # A priori estimates
-mpt_posterior = np.zeros((3, nSteps))  # A posteriori estimates
-Ppt_prior = np.zeros((3, 3, nSteps))
-Ppt_posterior = np.zeros((3, 3, nSteps))
+xtp = np.zeros((3, nSteps))
+# Single array that will hold interleaved a priori and a posteriori
+mpt = np.zeros((3, 2 * nSteps - 1))  # 2x size to hold both
+Ppt = np.zeros((3, 3, 2 * nSteps - 1))
+time_interleaved = np.zeros(2 * nSteps - 1)  # Time vector for interleaved data
 
-# Store initial values
+# Store initial values (a priori at t=0)
+mpt[:, 0] = m0
+Ppt[:, :, 0] = P0
+time_interleaved[0] = timeVector[0]
 xtp[:, 0] = xt0
-mpt_prior[:, 0] = m0
-Ppt_prior[:, :, 0] = P0
+
+ind = 1  # Index for interleaved arrays
 
 # Kalman Filter
 for i,tk in enumerate(timeVector[1:], start=1): # Start from index 1
@@ -82,8 +86,10 @@ for i,tk in enumerate(timeVector[1:], start=1): # Start from index 1
     # Store a priori (before measurement update)
     zkp[i] = zk
     xtp[:, i] = xk
-    mpt_prior[:, i] = mkm
-    Ppt_prior[:, :, i] = Pkm
+    mpt[:, ind] = mkm
+    Ppt[:, :, ind] = Pkm
+    time_interleaved[ind] = tk
+    ind += 1
 
     # Correct/Update our estimate
     zht = (H @ mkm).item() # maps propated mean into measurement space, zht = expected measurement
@@ -94,56 +100,54 @@ for i,tk in enumerate(timeVector[1:], start=1): # Start from index 1
     Pkp = Pkm - Ck @ Kk.T - Kk @ Ck.T + Kk * Wk * Kk.T # updated covariance
 
     # Store a posteriori (after measurement update)
-    mpt_posterior[:, i] = mkp
-    Ppt_posterior[:, :, i] = Pkp
+    mpt[:, ind] = mkp
+    Ppt[:, :, ind] = Pkp
+    time_interleaved[ind] = tk  # Same time, but a posteriori
+    ind += 1
 
     # Update for next iteration
     mk = mkp
     Pk = Pkp
 
-# Plots
+# Position estimation plot (with interleaved a priori/a posteriori)
+# Create interleaved truth array to match mpt
+xtp_interleaved = np.zeros(2 * nSteps - 1)
+xtp_interleaved[0] = xtp[0, 0]  # Initial truth
+for i in range(1, nSteps):
+    # Both a priori and a posteriori use the same truth at time tk
+    xtp_interleaved[2*i - 1] = xtp[0, i]  # A priori truth
+    xtp_interleaved[2*i] = xtp[0, i]      # A posteriori truth (same time)
+
 plt.figure(figsize=(12, 6))
-plt.plot(timeVector, zkp, 'ko', markersize=4, label='Measurements', alpha=0.6)
-plt.plot(timeVector, xtp[0, :], 'r-', linewidth=2, label='Truth')
-plt.plot(timeVector, mpt_posterior[0, :], 'b-', linewidth=2, label='Estimate (a posteriori)')
+plt.plot(time_interleaved, xtp_interleaved, 'r-', linewidth=2, label='Truth')
+plt.plot(time_interleaved, mpt[0, :], 'b-', linewidth=2, label='Estimate (interleaved)')
+# Plot measurements at their actual times
+plt.plot(timeVector, zkp, 'ko', markersize=5, label='Measurements', alpha=0.7, zorder=3)
 plt.xlabel('Time (s)')
 plt.ylabel('Position (m)')
 plt.legend()
 plt.grid(True)
-plt.title('Kalman Filter: Position Estimation')
+plt.title('Kalman Filter: Position Estimation (A Priori/A Posteriori Interleaved)')
 plt.show()
 
-# Plot error with 3 sigma bounds
-error = xtp[0, :] - mpt_posterior[0, :]
+# Plot error with 3 sigma bounds (interleaved - creates jagged/sawtooth pattern)
+error = np.zeros(2 * nSteps - 1)
+error[0] = xtp[0, 0] - mpt[0, 0]  # Initial error
+
+# Calculate error for interleaved array
+for i in range(1, nSteps):
+    # A priori error
+    error[2*i - 1] = xtp[0, i] - mpt[0, 2*i - 1]
+    # A posteriori error
+    error[2*i] = xtp[0, i] - mpt[0, 2*i]
+
 plt.figure(figsize=(12, 6))
-plt.plot(timeVector, error, 'r-', label='Estimation Error')
-plt.plot(timeVector, 3 * np.sqrt(Ppt_posterior[0, 0, :]), 'b--', label='+3σ bound')
-plt.plot(timeVector, -3 * np.sqrt(Ppt_posterior[0, 0, :]), 'b--', label='-3σ bound')
+plt.plot(time_interleaved, error, 'r-', linewidth=2, label='Estimation Error')
+plt.plot(time_interleaved, 3 * np.sqrt(Ppt[0, 0, :]), 'b--', label='+3σ bound')
+plt.plot(time_interleaved, -3 * np.sqrt(Ppt[0, 0, :]), 'b--', label='-3σ bound')
 plt.xlabel('Time (s)')
 plt.ylabel('Error (m)')
 plt.legend()
 plt.grid(True)
-plt.title('Estimation Error with 3σ Bounds')
-plt.show()
-
-# Plot error with 3 sigma bounds (both a priori and a posteriori)
-error_prior = xtp[0, :] - mpt_prior[0, :]
-error_posterior = xtp[0, :] - mpt_posterior[0, :]
-
-plt.figure(figsize=(12, 6))
-# A priori error and bounds
-plt.plot(timeVector, error_prior, 'r-', linewidth=2, label='Error (a priori)')
-plt.plot(timeVector, 3 * np.sqrt(Ppt_prior[0, 0, :]), 'r--', alpha=0.6, label='+3σ (a priori)')
-plt.plot(timeVector, -3 * np.sqrt(Ppt_prior[0, 0, :]), 'r--', alpha=0.6, label='-3σ (a priori)')
-
-# A posteriori error and bounds
-plt.plot(timeVector, error_posterior, 'b-', linewidth=2, label='Error (a posteriori)')
-plt.plot(timeVector, 3 * np.sqrt(Ppt_posterior[0, 0, :]), 'b--', alpha=0.6, label='+3σ (a posteriori)')
-plt.plot(timeVector, -3 * np.sqrt(Ppt_posterior[0, 0, :]), 'b--', alpha=0.6, label='-3σ (a posteriori)')
-
-plt.xlabel('Time (s)')
-plt.ylabel('Error (m)')
-plt.legend()
-plt.grid(True)
-plt.title('Estimation Error: A Priori vs A Posteriori with 3σ Bounds')
+plt.title('Estimation Error with 3σ Bounds (Interleaved A Priori/A Posteriori)')
 plt.show()
