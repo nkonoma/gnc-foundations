@@ -27,7 +27,7 @@ rng = np.random.default_rng(100)
 
 # Relevent system parameters
 dt = 0.5
-timeVector = np.arange(0, 10, dt)
+timeVector = np.arange(0, 20, dt)
 # Measurement noise covariance
 Rk = 10**2
 # Process noise PSD
@@ -78,7 +78,7 @@ for i,tk in enumerate(timeVector[1:], start=1): # Start from index 1
     zk = (H @ xk)[0] + rng.normal(0, np.sqrt(Rk)) 
 
     # Predict (Propagate our estimate)
-    X = solve_ivp(car_eoms, [tk, tk+dt], np.concatenate([mk, Pk.flatten()]), args=(F, Qs, M), rtol=1e-6, atol=1e-6)
+    X = solve_ivp(car_eoms, [tk-dt, tk], np.concatenate([mk, Pk.flatten()]), args=(F, Qs, M), rtol=1e-6, atol=1e-6)
     mkm = X.y[:3, -1] # propagated mean
     Pkm_flat = X.y[3:, -1] # propagated covariance of measurement
     Pkm = np.reshape(Pkm_flat, (3, 3))
